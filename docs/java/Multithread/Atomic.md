@@ -120,10 +120,15 @@ public class ABADemo {
 输出内容如下：
 
 ```
-Thread-0 ------ currentValue=1
-Thread-1 ------ currentValue=1, finalValue=2, compareAndSet Result=true
-Thread-1 ------ currentValue=2, finalValue=1, compareAndSet Result=true
-Thread-0 ------ currentValue=1, finalValue=2, compareAndSet Result=true
+===以下是ABA问题的产生===
+true	2019
+===以下是ABA问题的解决===
+t3	 第1次版本号1	值是100
+t4	 第1次版本号1	值是100
+t3	 第2次版本号2	值是101
+t3	 第3次版本号3	值是100
+t4	 修改成功否false	最新版本号3
+最新的值	100
 ```
 
 下面我们来详细介绍一下这些原子类。
