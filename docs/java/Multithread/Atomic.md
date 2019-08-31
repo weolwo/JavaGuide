@@ -67,69 +67,54 @@ Atomic 翻译成中文是原子的意思。在化学上，我们知道原子是�
 - AtomicMarkableReference：原子更新带有标记的引用类型。该类将 boolean 标记与引用关联起来，也可以解决使用 CAS 进行原子更新时可能出现的 ABA 问题。
 
 **CAS ABA 问题**
-- 描述: 第一个线程取到了变量 x 的值 A，然后巴拉巴拉干别的事，总之就是只拿到了变量 x 的值 A。这段时间内第二个线程也取到了变量 x 的值 A，然后把变量 x 的值改为 B，然后巴拉巴拉干别的事，最后又把变量 x 的值变为 A （相当于还原了）。在这之后第一个线程终于进行了变量 x 的操作，但是此时变量 x 的值还是 A，所以 compareAndSet 操作是成功。
-- 例子描述(可能不太合适，但好理解): 年初，现金为零，然后通过正常劳动赚了三百万，之后正常消费了（比如买房子）三百万。年末，虽然现金零收入（可能变成其他形式了），但是赚了钱是事实，还是得交税的！
+- 描述: 第一个线程从主存中取到了变量 x 的值 A，然后把它的值改成B后有推送到主存中,经过如此过程假设第二次主存中x的变量的值又变成了A. 这段时间内第二个线程也取到了变量 x 的值 A，然后把变量 x 的值改为 B。
+  也就是说第二个线程把自己私有线程内存中的x变量的值推送到主存时，此时发现主存中变量 x 的值还是 A，于是条件符合自己的期望,所以 compareAndSet 操作是成功。
+  这就是ABA问题的产生原因.
 - 代码例子（以``` AtomicInteger ```为例）
 
 ```java
-import java.util.concurrent.atomic.AtomicInteger;
-
-public class AtomicIntegerDefectDemo {
+public class ABADemo {
+    private static AtomicReference<Integer> atomicReference=new AtomicReference<>(100);//初始值为100
+    private static AtomicStampedReference<Integer> stampedReference=new AtomicStampedReference<>(100,1);
     public static void main(String[] args) {
-        defectOfABA();
+        System.out.println("===以下是ABA问题的产生===");
+        new Thread(()->{
+            atomicReference.compareAndSet(100,101);
+            atomicReference.compareAndSet(101,100);
+        },"t1").start();
+
+        new Thread(()->{
+            //先暂停1秒 保证完成ABA
+            try { TimeUnit.SECONDS.sleep(1); } catch (InterruptedException e) { e.printStackTrace(); }
+            System.out.println(atomicReference.compareAndSet(100, 2019)+"\t"+atomicReference.get());
+        },"t2").start();
+        try { TimeUnit.SECONDS.sleep(2); } catch (InterruptedException e) { e.printStackTrace(); }
+        System.out.println("===以下是ABA问题的解决===");
+
+        new Thread(()->{
+            int stamp = stampedReference.getStamp();
+            System.out.println(Thread.currentThread().getName()+"\t 第1次版本号"+stamp+"\t值是"+stampedReference.getReference());
+            //暂停1秒钟t3线程
+            try { TimeUnit.SECONDS.sleep(1); } catch (InterruptedException e) { e.printStackTrace(); }
+
+            stampedReference.compareAndSet(100,101,stampedReference.getStamp(),stampedReference.getStamp()+1);
+            System.out.println(Thread.currentThread().getName()+"\t 第2次版本号"+stampedReference.getStamp()+"\t值是"+stampedReference.getReference());
+            stampedReference.compareAndSet(101,100,stampedReference.getStamp(),stampedReference.getStamp()+1);
+            System.out.println(Thread.currentThread().getName()+"\t 第3次版本号"+stampedReference.getStamp()+"\t值是"+stampedReference.getReference());
+        },"t3").start();
+
+        new Thread(()->{
+            int stamp = stampedReference.getStamp();
+            System.out.println(Thread.currentThread().getName()+"\t 第1次版本号"+stamp+"\t值是"+stampedReference.getReference());
+            //保证线程3完成1次ABA
+            try { TimeUnit.SECONDS.sleep(3); } catch (InterruptedException e) { e.printStackTrace(); }
+            boolean result = stampedReference.compareAndSet(100, 2019, stamp, stamp + 1);
+            System.out.println(Thread.currentThread().getName()+"\t 修改成功否"+result+"\t最新版本号"+stampedReference.getStamp());
+            System.out.println("最新的值\t"+stampedReference.getReference());
+        },"t4").start();
     }
+ 
 
-    static void defectOfABA() {
-        final AtomicInteger atomicInteger = new AtomicInteger(1);
-
-        Thread coreThread = new Thread(
-                () -> {
-                    final int currentValue = atomicInteger.get();
-                    System.out.println(Thread.currentThread().getName() + " ------ currentValue=" + currentValue);
-
-                    // 这段目的：模拟处理其他业务花费的时间
-                    try {
-                        Thread.sleep(300);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-
-                    boolean casResult = atomicInteger.compareAndSet(1, 2);
-                    System.out.println(Thread.currentThread().getName()
-                            + " ------ currentValue=" + currentValue
-                            + ", finalValue=" + atomicInteger.get()
-                            + ", compareAndSet Result=" + casResult);
-                }
-        );
-        coreThread.start();
-
-        // 这段目的：为了让 coreThread 线程先跑起来
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
-        Thread amateurThread = new Thread(
-                () -> {
-                    int currentValue = atomicInteger.get();
-                    boolean casResult = atomicInteger.compareAndSet(1, 2);
-                    System.out.println(Thread.currentThread().getName()
-                            + " ------ currentValue=" + currentValue
-                            + ", finalValue=" + atomicInteger.get()
-                            + ", compareAndSet Result=" + casResult);
-
-                    currentValue = atomicInteger.get();
-                    casResult = atomicInteger.compareAndSet(2, 1);
-                    System.out.println(Thread.currentThread().getName()
-                            + " ------ currentValue=" + currentValue
-                            + ", finalValue=" + atomicInteger.get()
-                            + ", compareAndSet Result=" + casResult);
-                }
-        );
-        amateurThread.start();
-    }
-}
 ```
 
 输出内容如下：
