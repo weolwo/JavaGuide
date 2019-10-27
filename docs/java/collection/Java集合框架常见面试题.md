@@ -49,7 +49,7 @@
 
 - **3. 插入和删除是否受元素位置的影响：** ① **`ArrayList` 采用数组存储，所以插入和删除元素的时间复杂度受元素位置的影响。** 比如：执行`add(E e) `方法的时候， `ArrayList` 会默认在将指定的元素追加到此列表的末尾，这种情况时间复杂度就是O(1)。但是如果要在指定位置 i 插入和删除元素的话（`add(int index, E element) `）时间复杂度就为 O(n-i)。因为在进行上述操作的时候集合中第 i 和第 i 个元素之后的(n-i)个元素都要执行向后位/向前移一位的操作。 ② **`LinkedList` 采用链表存储，所以插入，删除元素时间复杂度不受元素位置的影响，都是近似 O（1）而数组为近似 O（n）。**
 
-- **4. 是否支持快速随机访问：** `LinkedList` 不支持高效的随机元素访问，而 `ArrayList` 支持。快速随机访问就是通过元素的序号快速获取元素对象(对应于`get(int index) `方法)。
+- **4. 是否支持快速随机访问（可以参考该类是否实现了`RandomAccess`类）：** `LinkedList` 不支持高效的随机元素访问，而 `ArrayList` 支持。快速随机访问就是通过元素的序号快速获取元素对象(对应于`get(int index) `方法)。
 
 - **5. 内存空间占用：** ArrayList的空 间浪费主要体现在在list列表的结尾会预留一定的容量空间，而LinkedList的空间花费则体现在它的每一个元素都需要消耗比ArrayList更多的空间（因为要存放直接后继和直接前驱以及数据）。
 
@@ -223,6 +223,8 @@ static int hash(int h) {
 ![jdk1.8之后的内部结构-HashMap](https://my-blog-to-use.oss-cn-beijing.aliyuncs.com/2019-6/JDK1.8之后的HashMap底层数据结构.jpg)
 
 > TreeMap、TreeSet以及JDK1.8之后的HashMap底层都用到了红黑树。红黑树就是为了解决二叉查找树的缺陷，因为二叉查找树在某些情况下会退化成一个线性结构。
+-  红黑树这么优秀，为何不直接使用红黑树得了？
+  说一下自己对于这个问题的看法：我们知道红黑树属于（自）平衡二叉树，但是为了保持“平衡”是需要付出代价的，红黑树在插入新数据后可能需要通过左旋，右旋、变色这些操作来保持平衡，这费事啊。你说说我们引入红黑树就是为了查找数据快，如果链表长度很短的话，根本不需要引入红黑树的，你引入之后还要付出代价维持它的平衡。但是链表过长就不一样了。至于为什么选 8 这个值呢？通过概率统计所得，这个值是综合查询成本和新增元素成本得出的最好的一个值
 
 **推荐阅读：**
 
@@ -287,8 +289,31 @@ static class Segment<K,V> extends ReentrantLock implements Serializable {
 ConcurrentHashMap取消了Segment分段锁，采用CAS和synchronized来保证并发安全。数据结构跟HashMap1.8的结构类似，数组+链表/红黑二叉树。Java 8在链表长度超过一定阈值（8）时将链表（寻址时间复杂度为O(N)）转换为红黑树（寻址时间复杂度为O(log(N))）
 
 synchronized只锁定当前链表或红黑二叉树的首节点，这样只要hash不冲突，就不会产生并发，效率又提升N倍。
+```java
+ final V putVal(K key, V value, boolean onlyIfAbsent) {
+        if (key == null || value == null) throw new NullPointerException();
+        int hash = spread(key.hashCode());
+        int binCount = 0;
+        for (Node<K,V>[] tab = table;;) {
+            Node<K,V> f; int n, i, fh;
+            if (tab == null || (n = tab.length) == 0)
+                tab = initTable();
+            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+                if (casTabAt(tab, i, null,
+                             new Node<K,V>(hash, key, value, null)))
+                    break;                   // no lock when adding to empty bin
+            }
+            else if ((fh = f.hash) == MOVED)
+                tab = helpTransfer(tab, f);
+            else {
+                V oldVal = null;
+                //同步锁在此
+                synchronized (f) {
+                    if (tabAt(tab, i) == f) {
+                        if (fh >= 0) {
+```
 
-## comparable 和 Comparator的区别
+## comparable 和 Comparator的区别 
 
 - comparable接口实际上是出自java.lang包 它有一个 `compareTo(Object obj)`方法用来排序
 - comparator接口实际上是出自 java.util 包它有一个`compare(Object obj1, Object obj2)`方法用来排序
